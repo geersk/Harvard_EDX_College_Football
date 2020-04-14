@@ -1,0 +1,613 @@
+---
+title: "Should I Buy a Ticket? Predicting Wins in College Football"
+author: |
+  | Kenneth Geers
+  | HarvardX: PH125.9x
+date: "April 14, 2020"
+output: pdf_document
+toc: true
+theme: united
+---
+\newpage
+# Introduction
+## Everyone Loves a Winner
+
+College Football is one of America's most popular sports. However, it is expensive to buy a ticket and to travel to a game. Therefore, this paper asks whether it is possible, using R code, machine learning, and a variety of on-field performance metrics, to build a model that can predict the number of games your favorite team will win in a season - so that you do not waste your time or money.
+
+We construct three models:
+
+1. Logistic Regression (LR)
+2. K-Nearest Neighbors (KNN)
+3. Random Forest (RF)
+
+In this study, LR provided the best initial results, with KNN in second place. The RF algorithm came in third, but was still better than blind guessing. In the future, however, it is possible that other models, or fine tuning these models, will yield a different result.
+
+# Data & Methods
+
+## Libraries
+The following R libraries were used in this research: tidyverse, dplyr, ggplot2, Hmisc, ggpubr, corrplot, nnet, ROCR, caret, pROC, mlbench, and randomForest.
+
+```{r, include=FALSE}
+library(tidyverse)
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(Hmisc)
+library(ggpubr)
+library(corrplot)
+library(nnet)
+library(ROCR)
+library(caret)
+library(pROC)
+library(mlbench)
+library(randomForest)
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+if(!require(Hmisc)) install.packages("Hmisc", repos = "http://cran.us.r-project.org")
+if(!require(ggpubr)) install.packages("ggpubr", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
+if(!require(ROCR)) install.packages("ROCR", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(pROC)) install.packages("pROC", repos = "http://cran.us.r-project.org")
+if(!require(mlbench)) install.packages("mlbench", repos = "http://cran.us.r-project.org")
+if(!require(randomForest)) install.packages("randomForest", repos = "http://cran.us.r-project.org")
+```
+
+## Data Source
+This analysis uses the 2019 College Football statistics from the NCAA website, which are grouped by 130 Division I teams, and can be found here: https://www.ncaa.com/stats/football/fbs.
+
+These data were originally downloaded and organized into one text file by Jeff Gallini, who posted the data to Kaggle for others to analyze:
+https://www.kaggle.com/jeffgallini/college-football-team-stats-2019. 
+
+For this research, we modified Gallini's data slightly, in particular by separating the "Win-Loss" column into "Wins" and "Losses". The new data set is contained in this file: CFB2019.txt.
+
+```{r}
+FB_Analysis <- read.csv("CFB2019.txt")
+```
+
+## Data Dimensions
+This code retrieves the dimensions of our new variable: FB_Analysis.
+
+```{r}
+dim(FB_Analysis)
+```
+
+There are 130 observations (representing 130 football teams), and 147 variables (representing 146 specific on-field performance metrics for each team).
+
+\newpage
+## Data Structure
+Here is the structure of our data. "Team" is a factor, followed by a wide variety of variables (performance metrics) in both integer and numeric formats.
+
+```{r}
+str(FB_Analysis [1:15])
+```
+
+## First Rows of Data
+This code shows the first 6 rows and 8 columns of data, ordered by team.
+
+```{r}
+head(FB_Analysis [1:8])
+```
+
+## Methods
+
+We will use R code, machine learning, and the data shown above to build three models designed to predict the number of games each team will win in a season.
+
+1. Logistic Regression (LR)
+2. K-Nearest Neighbors (KNN)
+3. Random Forest (RF)
+
+We have two goals: to achieve a result that is better than blind guessing, and to select the best overall model.
+
+\newpage
+# Visualization
+## Team Wins
+
+First, let's visualize some of our primary data points.
+
+The chart below shows the number of wins for all 130 teams in 2019.
+
+```{r}
+ggplot(data = FB_Analysis) + 
+  geom_bar(aes(x = Wins), col = "gold3") +
+  labs(title = "2019 College Football Season", x = "Wins", y = "Teams") +
+  theme(title = element_text(color = "Purple3", face = "bold", size = 14))
+```
+
+The single most common number of wins was 8, which happened for 23 teams.
+
+This means that if we guess blindly, our most accurate prediction could only be correct 17.69% of the time (23/130).
+
+Our machine-learning task is to improve our predictive capability.
+
+\newpage
+## Performance Metrics
+
+In the graph below, we establish something that is otherwise intuitive: better on-field performance usually yields more wins.
+
+Each circle represents one of the 130 football teams. The size and shade of the circle represents that team's number of wins in 2019.
+
+The x-axis represents offensive rank, and the y-axis is defensive rank (out of 146 total performance metrics). A lower rank means better relative performance.
+
+```{r}
+ggplot(data = FB_Analysis) +
+  geom_point(aes(x = Off.Rank, y = Def.Rank, alpha = Wins, size = Wins)) +
+  labs(title = "Performance Metrics", x = "Offense Rank", y = "Defense Rank") +
+  theme(title = element_text(color = "Purple3", face = "bold", size = 14))
+```
+
+The primary takeaway from this graph is that there is a strong, positive correlation between better performance and more wins.
+
+The winningest teams have the best on-field statistics - and vice versa.
+
+In our analysis below, we build machine-learning models to exploit this relationship.
+
+They should discover the best mix of metrics to predict how many wins a team will have in a season.
+
+\newpage
+# Analysis & Results
+
+## Ranked Observations
+
+The goal of this research is to use machine learning to predict how many wins a football team will have. If we build an effective model, it could help coaches, players, fans, gamblers, and investors to spend their time, money, and energy more wisely.
+
+The NCAA provides 146 unique performance metrics, all of which may eventually be useful for analysis. For this initial essay, however, we will only use 24 of these metrics - those which have already been ranked for us, by team, from 1-130.
+
+Here is the code to generate a new variable, "Ranked_Observations", and associate each metric with its team's win total:
+
+```{r}
+Ranked_Observations <- FB_Analysis %>% select(matches("Rank|Wins"))
+```
+
+Here are the first 8 performance metrics (starting with the second column):
+
+```{r}
+head(Ranked_Observations [1:9])
+```
+
+Note that Ranked_Observations does not contain specific numbers of yardage, points, time, etc., but only a team's relative rank (1-130), vis-à-vis the other teams, for 24 performance metrics.
+
+As any football fan will know, some of the key ranked metrics include:
+
+- Scoring: number of points earned
+- Rushing: how well a team runs the ball
+- Passing: how well a team throws the ball
+- Kickoff: how well a team kicks the ball
+- First Down: how far a team moves forward on its first try 
+- 4th.Down: how far a team moves forward on its last try
+- Redzone: how well a team performs when about to score
+- Turnover: how often a team involuntarily surrenders ball possession
+- Penalty: number of infractions
+- Time of Possession: how well a team maintains ball control
+
+\newpage
+## Logistic Regression Model
+
+Our first model uses logistic regression (LR), which is a statistical model (typically of a binary dependent variable) to determine event probabilities, such as whether a patient might be healthy or sick.
+
+First, we split the data into a 'train' set (80%) and a 'test' set (20%).
+
+```{r}
+set.seed(111)
+ind <- sample(2, nrow(Ranked_Observations), replace = TRUE, prob = c(0.8, 0.2))
+train <- Ranked_Observations[ind==1,]
+test <- Ranked_Observations[ind==2,]
+```
+
+Here you can see the first six rows of each data set. Notice that the test set has been randomly chosen from the larger data set.
+
+```{r}
+head(train [1:3])
+head(test [1:3])
+```
+
+Even in this data snippet, you can see how teams with better offensive and defensive rankings typically have more wins.
+
+\newpage
+LR Model
+
+This code runs our LR model, with the wins predicted from all 24 Ranked_Observations.
+
+```{r}
+LRM_model <- lm(Wins ~ ., data = train)
+summary(LRM_model)
+```
+
+LR calculated that the starred variables (noted to the right of the P values) were those that had the most influence in determining the number of wins.
+
+The top two performance metrics were "First Down Defense" (how well a team stops the other team's first offensive try) and "Time of Possession" (how long a team is able to maintain control of the football while on offense).
+
+In particular, note that 4 of the 5 remaining starred metrics are defensive in nature.
+
+To improve our LR model (for "LRM_model2"), we choose to leverage all 7 starred P values from above.
+
+```{r}
+LRM_model2 <- lm(Wins ~ First.Down.Def.Rank + X4rd.Down.Def.Rank + Pass.Def.Rank + Rushing.Def.Rank + Scoring.Def.Rank + Scoring.Off.Rank + Time.of.Possession.Rank, data = train)
+summary(LRM_model2)
+```
+
+Thus, LRM_model2 seems to affirm the college football adage that "offense may sell tickets, but defense wins championships".
+
+\newpage
+Next, we use our new model to guess the number of wins each team will have in the train data:
+
+```{r}
+LRM_predictions_train <- predict(LRM_model2, train, type = 'response')
+head(LRM_predictions_train [1:7])
+```
+
+This Confusion Matrix shows three things about LR's predicted win total for each football team:
+
+1. Incorrect guesses (top row)
+2. Correct guesses (bottom row)
+3. Total guesses (sum of both rows)
+
+```{r}
+LRM_Conf_train <- ifelse(round(LRM_predictions_train) == train$Wins, 1, 0)
+LRM_Conf_Tab_train <- table(Predicted = LRM_Conf_train, Actual = train$Wins)
+LRM_Conf_Tab_train
+```
+
+Here is the percentage of wins LR correctly predicted in the train data. 
+
+```{r}
+options(digits = 5)
+sum(LRM_Conf_Tab_train[2,])/sum(LRM_Conf_Tab_train)
+```
+
+We achieved a significant improvement: 30.77%.
+
+This is far better than the maximum 17.69% that we could have achieved by randomly guessing.
+
+Next, let's try our LR model against the test data:
+
+```{r}
+LRM_predictions_test <- predict(LRM_model2, test, type = 'response')
+head(LRM_predictions_test [1:7])
+```
+
+This Confusion Matrix shows the results:
+
+```{r}
+LRM_Conf_test <- ifelse(round(LRM_predictions_test) == test$Wins, 1, 0)
+LRM_Conf_Tab_test <- table(Predicted = LRM_Conf_test, Actual = test$Wins)
+LRM_Conf_Tab_test
+```
+
+Here is our percentage score against the test data:
+
+```{r}
+sum(LRM_Conf_Tab_test[2,])/sum(LRM_Conf_Tab_test)
+```
+
+For the test data, we achieved a somewhat lower result: 26.92%. However, this is still a tangible improvement over blind guessing.
+
+\newpage
+## K-Nearest Neighbors Model
+
+Our second model uses the K-Nearest Neighbors (KNN) machine learning algorithm, which examines all known cases and classifies new cases based on a similarity measure such as a distance function, ultimately choosing the new classification based on a plurality vote.
+
+We first split our data set into a 'train' set (80%) and a 'test' set (20%):
+
+```{r}
+set.seed(222)
+ind2 <- sample(2, nrow(Ranked_Observations), replace = TRUE, prob = c(0.8, 0.2))
+train2 <- Ranked_Observations[ind2==1,]
+test2 <- Ranked_Observations[ind2==2,]
+```
+
+The test data is randomly chosen from the complete data set.
+
+```{r}
+head(train2 [1:3])
+head(test2 [1:3])
+```
+
+Again, you can see that teams with better performance metrics tend to have more wins.
+
+We will leverage that demonstrated relationship in building our KNN model, which will try to find the ideal combination of metrics for the most accurate predictive capability.
+
+\newpage
+Here is the code to build our KNN model.
+
+```{r}
+trControl <- trainControl(method = "repeatedcv",
+                          number = 10,
+                          repeats = 3)
+set.seed(2222)
+KNN_model <- train(Wins ~ .,
+                   data = train2,
+                   method = 'knn',
+                   tuneLength = 20,
+                   trControl = trControl,
+                   preProc = c("center", "scale"))
+KNN_model
+```
+
+KNN selected the smallest Root Mean Square Error (RMSE), at k = 19, for its optimal model.
+
+\newpage
+Here is a visualization of the RMSE selection process.
+
+```{r}
+plot(KNN_model, col = "Purple3")
+```
+
+Below, you can see that the RMSEs in both the train and test sets are quite similar.
+
+```{r}
+KNN_predict_train <- predict(KNN_model, newdata = train2)
+KNN_predict_test <- predict(KNN_model, newdata = test2)
+RMSE(KNN_predict_train, train2$Wins)
+RMSE(KNN_predict_test, test2$Wins)
+```
+
+\newpage
+These two charts show the similarity of the KNN predictive capability in both the train and test sets.
+
+```{r}
+plot(KNN_predict_train ~ train2$Wins, col = "Purple3")
+plot(KNN_predict_test ~ test2$Wins, col = "Purple3")
+```
+
+\newpage
+In the table below, KNN calculates variable importance, sorting the top 20 in descending order.
+
+```{r}
+varImp(KNN_model)
+```
+
+Two interesting aspects immediately jump out.
+
+First, score is naturally the ultimate deciding factor. However, we must dig deeper into the list to understand exactly how the final game scores were achieved. Further, it is worth noting that our first LR model rated “First Down Defense” and “Time of Possession” as even more important than scoring.
+
+Second, we find the LR and the KNN models seem to have different philosophical approaches to winning football games. Remember that for LR, 5 of the top 7 statistics were on defense. KNN, however, appears to favor offense, with "First Down Rank" in third place, just after the two scoring metrics. And "Third Down Rank" (representing a team's typical penultimate offensive attempt to gain a new first down) is fourth. Thus, KNN strongly recognizes the value of a first down, which after all represents the latent potential of *four* downs (after which the other team typically gains possession).
+
+This difference in approach (between LR and KNN) could be the subject of further research.
+
+\newpage
+Now let's see how well KNN is able to predict a team's win total for the season. Here is the code for our train data.
+
+```{r}
+KNN_CM_train <- predict(KNN_model, train2, type = 'raw')
+head(KNN_CM_train [1:9])
+```
+
+Here is the KNN Confusion Matrix for the train data:
+
+```{r}
+KNN_CM_train2 <- ifelse(round(KNN_CM_train) == train2$Wins, 1, 0)
+KNN_CM_train3 <- table(Predicted = KNN_CM_train2, Actual = train2$Wins)
+KNN_CM_train3
+```
+
+How well did it work?
+
+```{r}
+options(digits = 5)
+sum(KNN_CM_train3[2,])/sum(KNN_CM_train3)
+```
+
+KNN's predictive capability in the train data was 20.19% - far short of LR's 30.77%.
+
+Now let's run KNN against the test data.
+
+```{r}
+KNN_CM_test <- predict(KNN_model, test2, type = 'raw')
+KNN_CM_test
+```
+
+Here is the KNN Confusion Matrix for the test data:
+
+```{r}
+KNN_CM_test2 <- ifelse(round(KNN_CM_test) == test2$Wins, 1, 0)
+KNN_CM_test3 <- table(Predicted = KNN_CM_test2, Actual = test2$Wins)
+KNN_CM_test3
+```
+
+And the KNN percentage for the test data.
+
+```{r}
+options(digits = 5)
+sum(KNN_CM_test3[2,])/sum(KNN_CM_test3)
+```
+
+The final result against the test set is 23.08%.
+
+This is better than blindly guessing, but not as good as LR (26.92%).
+
+\newpage
+## Random Forest Model
+Our third and final model employs the Random Forest (RF) method, which works by creating decision trees that provide results in the form of classification or prediction.
+
+First we split the data into a 'train' set (80%) and a 'test' set (20%).
+
+```{r}
+set.seed(333)
+ind3 <- sample(2, nrow(Ranked_Observations), replace = TRUE, prob = c(0.8, 0.2))
+train3 <- Ranked_Observations[ind3==1,]
+test3 <- Ranked_Observations[ind3==2,]
+```
+
+The split data sets are shown below.
+
+The test set is randomly chosen from the complete data set.
+
+```{r}
+head(train3 [1:3])
+head(test3 [1:3])
+```
+
+Again, you can see that better on-field performance typically leads to a higher number of wins.
+
+\newpage
+This code creates our RF model:
+
+```{r}
+rf <- randomForest(Wins ~ ., data = train3)
+print(rf)
+```
+
+It is a regression RF with 500 trees.
+
+The number of variables attempted at each split was 8.
+
+The model's error rate can be seen in the plot below.
+
+```{r}
+plot(rf, main = "RF: Error Rate", col = "Purple3")
+```
+
+\newpage
+Here is a histogram of the treesize, or number of nodes.
+
+```{r}
+hist(treesize(rf), main = "RF: Treesize", col = "Purple3")
+```
+
+Here are the model's list of attributes, such as "importance", which is the extractor function for variable importance measures as produced by randomForest.
+
+```{r}
+attributes(rf)
+```
+
+\newpage
+Let's run the importance function, which provides a table of node "purity" within the model.
+
+```{r}
+importance(rf)
+```
+
+Compared to LR and KNN, RF has chosen a hybrid approach to winning football games.
+
+Whereas LR favored defense, and KNN favored offense, RF has chosen a more balanced mix of both.
+
+After scoring, RF picked the following performance metrics as its most influential:
+
+1. First.Down.Rank (OFF)
+2. Def.Rank (DEF)
+3. Rushing.Def.Rank (DEF)
+4. X3rd.Down.Rank (OFF)
+5. Sack.Rank (DEF)
+6. Off.Rank (OFF)
+7. Redzone.Off.Rank (OFF)
+8. Tackle.for.Loss.Rank (DEF)
+
+Note that the top 8 variables are evenly split between offense and defense.
+
+\newpage
+Let's visualize RF's choices in a dotchart.
+
+```{r}
+varImpPlot(rf, n.var=12, main = "Variable Importance", col = "Purple3")
+```
+
+You can see that, as with KNN, the first down metric is third-most important in the RF model. However, 3 of the next 4 metrics are defensive in nature.
+
+\newpage
+Now it is time to see how well RF's hybrid approach can predict the number of a team's wins.
+
+```{r}
+RF_CM_train <- predict(rf, train3, type = 'response')
+head(RF_CM_train [1:9])
+```
+
+Here is the Confusion Matrix for the RF train set:
+
+```{r}
+RF_CM_train2 <- ifelse(round(RF_CM_train) == train3$Wins, 1, 0)
+RF_CM_train3 <- table(Predicted = RF_CM_train2, Actual = train3$Wins)
+RF_CM_train3
+```
+
+And the percentage of correct predictions for the train set:
+
+```{r}
+options(digits = 5)
+sum(RF_CM_train3[2,])/sum(RF_CM_train3)
+```
+
+Wow: this is our best prediction by far: 56.44%! 
+
+Surely this predictive capability cannot hold for the test data. Otherwise, we could get rich quickly by betting real money on this algorithm.
+
+Let's see whether this success can be duplicated in the test set.
+
+```{r}
+RF_CM_test <- predict(rf, test3, type = 'response')
+head(RF_CM_test [1:9])
+```
+
+Here is the Confusion Matrix for the RF test set:
+
+```{r}
+RF_CM_test2 <- ifelse(round(RF_CM_test) == test3$Wins, 1, 0)
+RF_CM_test3 <- table(Predicted = RF_CM_test2, Actual = test3$Wins)
+RF_CM_test3
+```
+
+And our final percentage:
+
+```{r}
+options(digits = 5)
+sum(RF_CM_test3[2,])/sum(RF_CM_test3)
+```
+
+Unfortunately, the extremely high percentage we achieved in the train set did not hold true for the test set.
+
+Here, we tallied a mere 20.69%, which is in fact worse than both LR and KNN.
+
+At the time of writing, it is unclear to this author why there should be such a large discrepancy.
+
+Perhaps it is due to RF's hybrid approach to prediction, but more likely there is simply an error in coding, or a bias in the train set.
+
+To gather a bit more data on this, let's check the RMSE of both the train set and test set.
+
+```{r}
+RF_predict_train <- predict(rf, newdata = train3)
+RF_predict_test <- predict(rf, newdata = test3)
+RMSE(RF_predict_train, train3$Wins)
+RMSE(RF_predict_test, test3$Wins)
+```
+
+Indeed. Unlike for the KNN model, these numbers are quite far apart.
+
+\newpage
+We can plot the RMSE disparity thus:
+
+```{r}
+plot(RF_predict_train ~ train3$Wins, col = "Purple3")
+plot(RF_predict_test ~ test3$Wins, col = "Purple3")
+```
+
+The first plot shows a rather tight group of data points, while the second shows a much greater room for error.
+
+\newpage
+# Conclusion
+
+## What Did We Learn?
+
+In this paper, we used R code and machine learning to predict how many wins all 130 American college football teams would have in a season.
+
+We built three models: Logistic Regression (LR), K-Nearest Neighbors (KNN), and Random Forest (RF).
+
+The best prediction we could make via blind guessing was 17.69%.
+
+Therefore, our goal was twofold: first, to achieve a better percentage than we could via guessing; and second, to choose the best overall model.
+
+Here are the final results of all three models against the test data:
+
+- LR: 26.92%
+- KNN: 23.08%
+- RF: 20.69%
+
+In this initial analysis, LR provided the best predictive capability, with KNN second, and RF third. In terms of algorithmic choices, there were some interesting differences.
+
+LR placed its emphasis on defense, which not only put it in first place among the algorithms, but also affirmed the college football adage that "offense may sell tickets, but defense wins championships".
+
+KNN appeared to favor an offensive approach to winning, and easily took second place. RF took a hybrid approach, which might initially seem to be a smart move, but in fact landed it in last place.
+
+In the future, it is possible that other models, or even fine tuning these models, will yield different results. There are many more models and variables to consider, and so far, we have only scratched the surface.
